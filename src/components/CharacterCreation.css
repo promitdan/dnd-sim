@@ -1,0 +1,137 @@
+.cc-layout {
+    display: flex;
+    padding: 20px;
+    flex-direction: column;
+    background-color: #413c22b5;
+    color: #dcdaca;
+    font-size: 18px;
+}
+.cc-container {
+    display: flex;
+    gap: 20px;
+}
+.cc-preview {
+    flex: 1;
+    height: 500px;
+    display: flex;
+    justify-content: center;
+}
+.cc-preview-img {
+    height: 100%;
+    object-fit: cover;
+}
+.cc-stats {
+    flex: 3;
+    /* border: 1px solid black; */
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+}
+.cc-stats-header {
+    text-align: center;
+    font-size: 28px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+.cc-stats-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.cc-stats-reroll {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+.cc-stats-reroll button {
+    padding: 10px 20px;
+    font-size: 14px;
+    cursor: pointer;
+    border: none;
+    font-weight: bold;
+}
+.cc-stats-render {
+    width: 50%;
+}
+.cc-name-section {
+    display: flex;
+    font-size: 24px;
+    gap: 10px;
+    width: 50%;
+    justify-content: space-between;
+}
+.cc-name-label {
+    font-weight: bold;
+}
+.cc-stat {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    margin-top: 20px;
+}
+.cc-stat-name {
+    font-weight: bold;
+    font-size: 18px;
+}
+.cc-stat-value {
+    font-weight: bold;
+}
+.cc-confirm {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+.cc-confirm button {
+    padding: 10px 20px;
+    font-size: 18px;
+    cursor: pointer;
+    /* background-color:coral; */
+    border: none;
+    font-weight: bold;
+}
+.cc-class-selection, .cc-gender-section {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 50%;
+}
+.cc-class-label, .cc-gender-label {
+    font-weight: bold;
+    font-size: 18px;
+}
+.cc-class-controls, .cc-gender-controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+.cc-name-section:focus-within .cc-name-label::before {
+    content: '> ';
+}
+.cc-name-section:focus-within .cc-name-label::after {
+    content: ' <';
+}
+.cc-gender-section:focus-within .cc-gender-label::before {
+    content: '> ';
+}
+.cc-gender-section:focus-within .cc-gender-label::after {
+    content: ' <';
+}
+.cc-class-selection:focus-within .cc-class-label::before {
+    content: '> ';
+}
+.cc-class-selection:focus-within .cc-class-label::after {
+    content: ' <';
+}
+.cc-stats-reroll:focus-within button::before {
+    content: '> ';
+}
+.cc-stats-reroll:focus-within button::after {
+    content: ' <';
+}
+.cc-confirm:focus-within button::before {
+    content: '> ';
+}
+.cc-confirm:focus-within button::after {
+    content: ' <';
+}
