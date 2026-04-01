@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PlayerCharacter, Tile, EnemyType, EnemyCharacter, CombatState, HealthPotion } from './types';
-import { generateDungeon } from '../engine/dungeon';
-import { initializeEnemies, detectPlayer, getAlertedEnemies } from '../engine/enemies';
-import { initializePotions, rollPotionHeal } from '../engine/items';
+import type { PlayerCharacter, EnemyType, EnemyCharacter, CombatState } from './types';
+import ExplorationMusic from '../assets/audio/dungeon_exploration_music.mp3';
+import CombatMusic from '../assets/audio/combat_music.mp3';
+import { useBackgroundMusic } from '../hooks/useBackgroundMusic';
 import {
     startCombat,
     advanceTurn,
@@ -14,6 +14,8 @@ import {
     getFocusDamageBonus,
     checkAndAdvancePlayerTurn
 } from '../engine/combat';
+import { detectPlayer, getAlertedEnemies } from '../engine/enemies';
+import { rollPotionHeal } from '../engine/items';
 import FloorTile from '../assets/dungeon/tile.jpg';
 import {
     PLAYER_SPRITE_MAP,
@@ -26,11 +28,18 @@ import {
 import { Path } from 'rot-js';
 import ContextMenu, { type PlayerAction } from './ContextMenu';
 import PlayerPortrait from './PlayerPortrait';
+import {
+    useGameStore,
+    useEnemies,
+    usePotions,
+    usePlayerPosition,
+    usePlayerHp,
+    useCombatState,
+    usePendingAction,
+} from '../state/gameStore';
 import './AdventureArea.css';
 
 const TILE_SIZE = 48;
-const DUNGEON_WIDTH = 30;
-const DUNGEON_HEIGHT = 15;
 
 interface AdventureAreaProps {
     playerCharacter: PlayerCharacter;
@@ -46,43 +55,6 @@ const getAttackSpriteType = (
     return isMelee ? 'staff' : 'fireball';
 };
 
-// Update FOV by mutating dungeon ref directly
-const updateFOV = (
-    dungeon: Tile[][],
-    playerX: number,
-    playerY: number,
-    sightRange: number
-) => {
-    // Clear all visible flags
-    for (let y = 0; y < dungeon.length; y++) {
-        for (let x = 0; x < dungeon[y].length; x++) {
-            dungeon[y][x].isVisible = false;
-        }
-    }
-
-    // Mark tiles within Chebyshev distance as visible and explored
-    for (let y = 0; y < dungeon.length; y++) {
-        for (let x = 0; x < dungeon[y].length; x++) {
-            const distance = Math.max(
-                Math.abs(x - playerX),
-                Math.abs(y - playerY)
-            );
-            if (distance <= sightRange) {
-                dungeon[y][x].isVisible = true;
-                dungeon[y][x].isExplored = true;
-            }
-        }
-    }
-};
-
-// Reveal a specific tile in the dungeon ref
-const revealTile = (dungeon: Tile[][], x: number, y: number) => {
-    if (dungeon[y]?.[x]) {
-        dungeon[y][x].isVisible = true;
-        dungeon[y][x].isExplored = true;
-    }
-};
-
 const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureAreaProps) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -93,81 +65,80 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
     const banditImageRef = useRef<HTMLImageElement | null>(null);
     const potionImageRef = useRef<HTMLImageElement | null>(null);
     const attackSpritesRef = useRef<Partial<Record<AttackSpriteType, HTMLImageElement>>>({});
-
-    // Loading state
-    const [floorImageLoaded, setFloorImageLoaded] = useState(false);
-    const [playerImageLoaded, setPlayerImageLoaded] = useState(false);
-    const [enemyImagesLoaded, setEnemyImagesLoaded] = useState(false);
-    const [potionImageLoaded, setPotionImageLoaded] = useState(false);
-    const [attackSpritesLoaded, setAttackSpritesLoaded] = useState(false);
-
-    // Game state
-    const [dungeon] = useState<Tile[][]>(() => generateDungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT));
-    const skeletonCount = useMemo(() => Math.floor(Math.random() * 3) + 2, []);
-    const banditCount = useMemo(() => Math.floor(Math.random() * 3) + 2, []);
-    const [enemies, setEnemies] = useState<EnemyCharacter[]>(() =>
-        initializeEnemies(dungeon, skeletonCount, banditCount)
-    );
-    const [potions, setPotions] = useState<HealthPotion[]>(() =>
-        initializePotions(dungeon, enemies)
-    );
-
-    const startTile = useMemo(() => {
-        const y = dungeon.findIndex(row => row.some(tile => tile.isStart));
-        const x = dungeon[y].findIndex(tile => tile.isStart);
-        return { x, y };
-    }, [dungeon]);
-
-    const [playerPosition, setPlayerPosition] = useState(startTile);
-    const [combatState, setCombatState] = useState<CombatState | null>(null);
-    const [pendingAction, setPendingAction] = useState<PlayerAction | null>(null);
-    const [playerHp, setPlayerHp] = useState(playerCharacter.maxHp);
-
-    // Sight range derived from wisdom
-    const sightRange = useMemo(() => {
-        return 3 + Math.floor((playerCharacter.stats.wisdom - 10) / 2);
-    }, [playerCharacter.stats.wisdom]);
-
-    // Refs
-    const enemiesRef = useRef(enemies);
-    const potionsRef = useRef(potions);
-    const dungeonRef = useRef(dungeon);
-    const playerPositionRef = useRef(playerPosition);
-    const combatStateRef = useRef<CombatState | null>(null);
-    const pendingActionRef = useRef<PlayerAction | null>(null);
-    const movementIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const attackAnimationRef = useRef<{
         entityId: string;
         startTime: number;
         duration: number;
         spriteType: AttackSpriteType;
     } | null>(null);
+    const movementIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // Sync refs
-    useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
-    useEffect(() => { potionsRef.current = potions; }, [potions]);
-    useEffect(() => { playerPositionRef.current = playerPosition; }, [playerPosition]);
-    useEffect(() => { combatStateRef.current = combatState; }, [combatState]);
-    useEffect(() => { pendingActionRef.current = pendingAction; }, [pendingAction]);
+    // Local state
+    const [isReady, setIsReady] = useState(false);
+    const [floorImageLoaded, setFloorImageLoaded] = useState(false);
+    const [playerImageLoaded, setPlayerImageLoaded] = useState(false);
+    const [enemyImagesLoaded, setEnemyImagesLoaded] = useState(false);
+    const [potionImageLoaded, setPotionImageLoaded] = useState(false);
+    const [attackSpritesLoaded, setAttackSpritesLoaded] = useState(false);
 
-    // Update FOV whenever player position changes
+    // Store state
+    const enemies = useEnemies();
+    const potions = usePotions();
+    const playerPosition = usePlayerPosition();
+    const playerHp = usePlayerHp();
+    const combatState = useCombatState();
+    const pendingAction = usePendingAction();
+
+    // Store actions
+    const {
+        initGame,
+        setEnemies,
+        updateEnemy,
+        removePotion,
+        setPlayerPosition,
+        setPlayerHp,
+        setCombatState,
+        updateCombatState,
+        setPendingAction,
+        updateFOV,
+        revealTile,
+        sightRange,
+        playerMaxHp,
+        dungeon,
+    } = useGameStore();
+
+    // Initialise game on mount
     useEffect(() => {
-        updateFOV(dungeonRef.current, playerPosition.x, playerPosition.y, sightRange);
-    }, [playerPosition, sightRange]);
+        initGame(playerCharacter);
+        setIsReady(true);
+    }, []);
+
+    // Update FOV whenever player moves
+    useEffect(() => {
+        if (!isReady || !dungeon.length) return;
+        updateFOV(playerPosition.x, playerPosition.y, sightRange);
+    }, [playerPosition, sightRange, isReady]);
 
     // Adjacent potion check
     const adjacentPotion = useMemo(() => {
-        const pos = playerPosition;
         return potions.find(p =>
-            Math.max(Math.abs(p.x - pos.x), Math.abs(p.y - pos.y)) <= 1
+            Math.max(Math.abs(p.x - playerPosition.x), Math.abs(p.y - playerPosition.y)) <= 1
         ) ?? null;
     }, [playerPosition, potions]);
 
-    // isPlayerTurn derived value
+    // Is it the player's turn
     const isPlayerTurn = useMemo(() => {
         if (!combatState?.isActive) return false;
         return combatState.initiativeOrder[combatState.currentTurnIndex] === 'player';
     }, [combatState]);
+    const isInCombat = !!combatState?.isActive;
+    const currentTrack = isInCombat ? CombatMusic : ExplorationMusic;
+    useBackgroundMusic(currentTrack);
+    // Victory check
+    useEffect(() => {
+        if (enemies.length === 0) return;
+        if (enemies.every(e => e.currentHp <= 0)) onVictory();
+    }, [enemies]);
 
     // Load floor tile
     useEffect(() => {
@@ -232,39 +203,25 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
         });
     }, []);
 
-    // Initial detection check
+    // Initial enemy detection
     useEffect(() => {
-        if (!floorImageLoaded || !playerImageLoaded || !enemyImagesLoaded) return;
-        const detectingEnemy = detectPlayer(
-            enemiesRef.current,
-            playerPositionRef.current,
-            dungeonRef.current
-        );
-        if (detectingEnemy) {
-            const alertedIds = getAlertedEnemies(
-                detectingEnemy,
-                enemiesRef.current,
-                dungeonRef.current
-            );
-            setEnemies(prev => {
-                const updated = prev.map(e =>
-                    alertedIds.includes(e.id) ? { ...e, isHostile: true } : e
-                );
-                // Reveal tiles of all alerted enemies
-                updated
-                    .filter(e => alertedIds.includes(e.id))
-                    .forEach(e => revealTile(dungeonRef.current, e.x, e.y));
-                setCombatState(startCombat(playerCharacter, updated));
-                return updated;
-            });
-        }
-    }, [floorImageLoaded, playerImageLoaded, enemyImagesLoaded]);
+        if (!isReady || !floorImageLoaded || !playerImageLoaded || !enemyImagesLoaded) return;
 
-    // Victory check
-    useEffect(() => {
-        if (enemies.length === 0) return;
-        if (enemies.every(e => e.currentHp <= 0)) onVictory();
-    }, [enemies]);
+        const { enemies: currentEnemies, playerPosition: pos, dungeon: currentDungeon } = useGameStore.getState();
+        const detectingEnemy = detectPlayer(currentEnemies, pos, currentDungeon);
+
+        if (detectingEnemy) {
+            const alertedIds = getAlertedEnemies(detectingEnemy, currentEnemies, currentDungeon);
+            const updated = currentEnemies.map(e =>
+                alertedIds.includes(e.id) ? { ...e, isHostile: true } : e
+            );
+            updated
+                .filter(e => alertedIds.includes(e.id))
+                .forEach(e => revealTile(e.x, e.y));
+            setEnemies(updated);
+            setCombatState(startCombat(playerCharacter, updated));
+        }
+    }, [isReady, floorImageLoaded, playerImageLoaded, enemyImagesLoaded]);
 
     // Enemy turn processing
     useEffect(() => {
@@ -274,12 +231,17 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
 
         const enemy = enemies.find(e => e.id === currentId);
         if (!enemy || enemy.currentHp <= 0) {
-            setCombatState(prev => prev ? advanceTurn(prev, enemiesRef.current) : prev);
+            updateCombatState(prev => advanceTurn(prev, useGameStore.getState().enemies));
             return;
         }
 
         const timer = setTimeout(() => {
-            const pos = playerPositionRef.current;
+            const {
+                playerPosition: pos,
+                enemies: currentEnemies,
+                dungeon: currentDungeon
+            } = useGameStore.getState();
+
             const distance = Math.max(
                 Math.abs(enemy.x - pos.x),
                 Math.abs(enemy.y - pos.y)
@@ -294,58 +256,56 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                     spriteType: 'sword'
                 };
                 if (result.hit) {
-                    setPlayerHp(prev => {
-                        const newHp = Math.max(0, prev - result.damage);
-                        if (newHp <= 0) onGameOver();
-                        return newHp;
-                    });
+                    const newHp = Math.max(0, useGameStore.getState().playerHp - result.damage);
+                    setPlayerHp(newHp);
+                    if (newHp <= 0) onGameOver();
                 }
-                setCombatState(prev => {
-                    if (!prev) return prev;
-                    const withLog = addLogEntry(prev,
+                updateCombatState(prev => advanceTurn(
+                    addLogEntry(prev,
                         result.hit
                             ? `${enemy.name} hits you for ${result.damage} damage`
                             : `${enemy.name} misses you`
-                    );
-                    return advanceTurn(withLog, enemiesRef.current);
-                });
+                    ),
+                    currentEnemies
+                ));
             } else {
                 const astar = new Path.AStar(pos.x, pos.y, (x, y) => {
-                    return dungeonRef.current[y]?.[x]?.tileType === 'floor';
+                    return currentDungeon[y]?.[x]?.tileType === 'floor';
                 });
                 const path: { x: number; y: number }[] = [];
                 astar.compute(enemy.x, enemy.y, (x, y) => path.push({ x, y }));
                 path.shift();
 
                 if (path.length > 0) {
-                    const nextTile = path[0];
-                    // Reveal the tile the enemy moves to
-                    revealTile(dungeonRef.current, nextTile.x, nextTile.y);
-                    setEnemies(prev => prev.map(e =>
-                        e.id === enemy.id
-                            ? { ...e, x: nextTile.x, y: nextTile.y }
-                            : e
-                    ));
+                    revealTile(path[0].x, path[0].y);
+                    updateEnemy(enemy.id, { x: path[0].x, y: path[0].y });
                 }
 
-                setCombatState(prev => prev ? advanceTurn(prev, enemiesRef.current) : prev);
+                updateCombatState(prev =>
+                    advanceTurn(prev, useGameStore.getState().enemies)
+                );
             }
 
-            if (checkCombatEnd(enemiesRef.current)) {
-                setCombatState(prev => prev ? { ...prev, isActive: false } : prev);
+            if (checkCombatEnd(useGameStore.getState().enemies)) {
+                updateCombatState(prev => ({ ...prev, isActive: false }));
             }
         }, 200);
 
         return () => clearTimeout(timer);
     }, [combatState?.currentTurnIndex, combatState?.isActive]);
 
-    // Mouse move handler for cursor
+    // Mouse move handler
     useEffect(() => {
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas || !isReady) return;
 
         const handleMouseMove = (e: MouseEvent) => {
-            const action = pendingActionRef.current;
+            const {
+                pendingAction: action,
+                playerPosition: pos,
+                enemies: currentEnemies,
+                dungeon: currentDungeon
+            } = useGameStore.getState();
 
             if (!action) {
                 canvas.style.cursor = 'default';
@@ -355,29 +315,22 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
             const rect = canvas.getBoundingClientRect();
             const hoverX = Math.floor((e.clientX - rect.left) / TILE_SIZE);
             const hoverY = Math.floor((e.clientY - rect.top) / TILE_SIZE);
-            const pos = playerPositionRef.current;
 
             const distance = Math.max(
                 Math.abs(hoverX - pos.x),
                 Math.abs(hoverY - pos.y)
             );
 
-            const hoveredEnemy = enemiesRef.current.find(e =>
+            const hoveredEnemy = currentEnemies.find(e =>
                 e.x === hoverX && e.y === hoverY && e.currentHp > 0
             );
+            const hoveredTile = currentDungeon[hoverY]?.[hoverX];
 
-            const hoveredTile = dungeonRef.current[hoverY]?.[hoverX];
             let isValid = false;
-
-            if (action === 'attack') {
-                isValid = !!hoveredEnemy && distance <= 4;
-            } else if (action === 'focus_attack') {
-                isValid = !!hoveredEnemy && distance <= 1;
-            } else if (action === 'move') {
-                isValid = !!hoveredTile && hoveredTile.tileType === 'floor' && distance <= 1;
-            } else if (action === 'long_move') {
-                isValid = !!hoveredTile && hoveredTile.tileType === 'floor' && distance <= 2;
-            }
+            if (action === 'attack') isValid = !!hoveredEnemy && distance <= 4;
+            else if (action === 'focus_attack') isValid = !!hoveredEnemy && distance <= 1;
+            else if (action === 'move') isValid = !!hoveredTile && hoveredTile.tileType === 'floor' && distance <= 1;
+            else if (action === 'long_move') isValid = !!hoveredTile && hoveredTile.tileType === 'floor' && distance <= 2;
 
             if (!isValid) {
                 canvas.style.cursor = 'not-allowed';
@@ -394,75 +347,80 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
             canvas.style.cursor = cursorMap[action] ?? 'crosshair';
         };
 
-        const handleMouseLeave = () => {
-            canvas.style.cursor = 'default';
-        };
+        const handleMouseLeave = () => { canvas.style.cursor = 'default'; };
 
         canvas.addEventListener('mousemove', handleMouseMove);
         canvas.addEventListener('mouseleave', handleMouseLeave);
-
         return () => {
             canvas.removeEventListener('mousemove', handleMouseMove);
             canvas.removeEventListener('mouseleave', handleMouseLeave);
         };
-    }, []);
+    }, [isReady]);
 
-    // Right click handler — only potions outside combat
+    // Right click — potions outside combat
     useEffect(() => {
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas || !isReady) return;
 
         const handleRightClick = (e: MouseEvent) => {
             e.preventDefault();
-            if (combatStateRef.current?.isActive) return;
+            const {
+                combatState: cs,
+                playerPosition: pos,
+                potions: currentPotions
+            } = useGameStore.getState();
+            if (cs?.isActive) return;
 
             const rect = canvas.getBoundingClientRect();
             const clickX = Math.floor((e.clientX - rect.left) / TILE_SIZE);
             const clickY = Math.floor((e.clientY - rect.top) / TILE_SIZE);
-            const pos = playerPositionRef.current;
 
-            if (clickX === pos.x && clickY === pos.y) {
-                const nearPotion = potionsRef.current.find(p =>
+            const nearPotion = currentPotions.find(p =>
+                Math.max(Math.abs(p.x - pos.x), Math.abs(p.y - pos.y)) <= 1
+            );
+
+            if (
+                (clickX === pos.x && clickY === pos.y && nearPotion) ||
+                currentPotions.find(p =>
+                    p.x === clickX && p.y === clickY &&
                     Math.max(Math.abs(p.x - pos.x), Math.abs(p.y - pos.y)) <= 1
-                );
-                if (nearPotion) handleConsumePotion();
-                return;
-            }
-
-            const clickedPotion = potionsRef.current.find(p => p.x === clickX && p.y === clickY);
-            if (clickedPotion) {
-                const distance = Math.max(
-                    Math.abs(clickedPotion.x - pos.x),
-                    Math.abs(clickedPotion.y - pos.y)
-                );
-                if (distance <= 1) handleConsumePotion();
+                )
+            ) {
+                handleConsumePotion();
             }
         };
 
         canvas.addEventListener('contextmenu', handleRightClick);
         return () => canvas.removeEventListener('contextmenu', handleRightClick);
-    }, []);
+    }, [isReady]);
 
     const handleConsumePotion = () => {
-        const pos = playerPositionRef.current;
-        const potion = potionsRef.current.find(p =>
+        const {
+            playerPosition: pos,
+            potions: currentPotions,
+            combatState: cs,
+            enemies: currentEnemies,
+            playerHp: currentHp
+        } = useGameStore.getState();
+
+        const potion = currentPotions.find(p =>
             Math.max(Math.abs(p.x - pos.x), Math.abs(p.y - pos.y)) <= 1
         );
         if (!potion) return;
 
         const heal = rollPotionHeal();
-        setPlayerHp(prev => Math.min(playerCharacter.maxHp, prev + heal));
-        setPotions(prev => prev.filter(p => p.id !== potion.id));
+        setPlayerHp(Math.min(playerMaxHp, currentHp + heal));
+        removePotion(potion.id);
 
-        if (combatStateRef.current?.isActive) {
-            setCombatState(prev => {
-                if (!prev) return prev;
-                const withLog = addLogEntry(prev, `You drink a potion and recover ${heal} HP`);
-                return advanceTurn(
-                    { ...withLog, hasAttackedThisTurn: true, hasMovedThisTurn: true },
-                    enemiesRef.current
-                );
-            });
+        if (cs?.isActive) {
+            updateCombatState(prev => advanceTurn(
+                {
+                    ...addLogEntry(prev, `You drink a potion and recover ${heal} HP`),
+                    hasAttackedThisTurn: true,
+                    hasMovedThisTurn: true
+                },
+                currentEnemies
+            ));
         }
     };
 
@@ -472,7 +430,7 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
             return;
         }
         if (action === 'end_turn') {
-            setCombatState(prev => prev ? advanceTurn(prev, enemiesRef.current) : prev);
+            updateCombatState(prev => advanceTurn(prev, useGameStore.getState().enemies));
             setPendingAction(null);
             if (canvasRef.current) canvasRef.current.style.cursor = 'default';
             return;
@@ -483,30 +441,35 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
     // Click handler
     useEffect(() => {
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas || !isReady) return;
 
         const handleClick = (event: MouseEvent) => {
             const rect = canvas.getBoundingClientRect();
             const clickX = Math.floor((event.clientX - rect.left) / TILE_SIZE);
             const clickY = Math.floor((event.clientY - rect.top) / TILE_SIZE);
 
-            if (combatStateRef.current?.isActive && pendingActionRef.current) {
-                const action = pendingActionRef.current;
-                const pos = playerPositionRef.current;
+            const {
+                combatState: cs,
+                pendingAction: action,
+                playerPosition: pos,
+                enemies: currentEnemies,
+                dungeon: currentDungeon
+            } = useGameStore.getState();
 
+            if (cs?.isActive && action) {
                 if (action === 'attack') {
                     const rangedBonus = getRangedAttackBonus(
                         playerCharacter.characterClass,
                         playerCharacter.stats,
                         playerCharacter.level
                     );
-                    const target = enemiesRef.current.find(e =>
+                    const target = currentEnemies.find(e =>
                         e.x === clickX && e.y === clickY && e.currentHp > 0 &&
                         Math.max(Math.abs(e.x - pos.x), Math.abs(e.y - pos.y)) <= 4
                     );
                     if (target) {
                         const result = resolveAttack(rangedBonus, target.armorClass, 1, 6);
-                        const updatedEnemies = enemiesRef.current.map(e =>
+                        const updatedEnemies = currentEnemies.map(e =>
                             e.id === target.id
                                 ? { ...e, currentHp: e.currentHp - result.damage }
                                 : e
@@ -520,31 +483,26 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                         };
 
                         if (checkCombatEnd(updatedEnemies)) {
-                            setCombatState(prev => prev
-                                ? addLogEntry({ ...prev, isActive: false },
-                                    result.hit
-                                        ? `You shoot ${target.name} for ${result.damage} damage. Victory!`
-                                        : `You missed ${target.name}`
-                                )
-                                : prev
-                            );
+                            updateCombatState(prev => addLogEntry(
+                                { ...prev, isActive: false },
+                                result.hit
+                                    ? `You shoot ${target.name} for ${result.damage} damage. Victory!`
+                                    : `You missed ${target.name}`
+                            ));
                             setPendingAction(null);
                             if (canvasRef.current) canvasRef.current.style.cursor = 'default';
                             return;
                         }
 
-                        setCombatState(prev => {
-                            if (!prev) return prev;
-                            const withLog = addLogEntry(prev,
+                        updateCombatState(prev => checkAndAdvancePlayerTurn(
+                            addLogEntry(
+                                { ...prev, hasAttackedThisTurn: true },
                                 result.hit
                                     ? `You shoot ${target.name} for ${result.damage} damage`
                                     : `You missed ${target.name}`
-                            );
-                            return checkAndAdvancePlayerTurn(
-                                { ...withLog, hasAttackedThisTurn: true },
-                                updatedEnemies
-                            );
-                        });
+                            ),
+                            updatedEnemies
+                        ));
                         setPendingAction(null);
                         if (canvasRef.current) canvasRef.current.style.cursor = 'default';
                     }
@@ -556,14 +514,14 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                         playerCharacter.level
                     );
                     const focusDamageBonus = getFocusDamageBonus(playerCharacter.stats.dexterity);
-                    const target = enemiesRef.current.find(e =>
+                    const target = currentEnemies.find(e =>
                         e.x === clickX && e.y === clickY && e.currentHp > 0 &&
                         Math.max(Math.abs(e.x - pos.x), Math.abs(e.y - pos.y)) <= 1
                     );
                     if (target) {
                         const result = resolveAttack(meleeBonus, target.armorClass, 1, 6);
                         const totalDamage = result.damage + (result.hit ? focusDamageBonus : 0);
-                        const updatedEnemies = enemiesRef.current.map(e =>
+                        const updatedEnemies = currentEnemies.map(e =>
                             e.id === target.id
                                 ? { ...e, currentHp: e.currentHp - totalDamage }
                                 : e
@@ -577,31 +535,26 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                         };
 
                         if (checkCombatEnd(updatedEnemies)) {
-                            setCombatState(prev => prev
-                                ? addLogEntry({ ...prev, isActive: false },
-                                    result.hit
-                                        ? `You focus attack ${target.name} for ${totalDamage} damage. Victory!`
-                                        : `Your focus attack missed ${target.name}`
-                                )
-                                : prev
-                            );
+                            updateCombatState(prev => addLogEntry(
+                                { ...prev, isActive: false },
+                                result.hit
+                                    ? `You focus attack ${target.name} for ${totalDamage} damage. Victory!`
+                                    : `Your focus attack missed ${target.name}`
+                            ));
                             setPendingAction(null);
                             if (canvasRef.current) canvasRef.current.style.cursor = 'default';
                             return;
                         }
 
-                        setCombatState(prev => {
-                            if (!prev) return prev;
-                            const withLog = addLogEntry(prev,
+                        updateCombatState(prev => advanceTurn(
+                            addLogEntry(
+                                { ...prev, hasAttackedThisTurn: true, hasMovedThisTurn: true },
                                 result.hit
                                     ? `You focus attack ${target.name} for ${totalDamage} damage`
                                     : `Your focus attack missed ${target.name}`
-                            );
-                            return advanceTurn(
-                                { ...withLog, hasAttackedThisTurn: true, hasMovedThisTurn: true },
-                                updatedEnemies
-                            );
-                        });
+                            ),
+                            updatedEnemies
+                        ));
                         setPendingAction(null);
                         if (canvasRef.current) canvasRef.current.style.cursor = 'default';
                     }
@@ -615,21 +568,19 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                     );
                     if (
                         distance <= maxTiles &&
-                        dungeonRef.current[clickY]?.[clickX]?.tileType === 'floor'
+                        currentDungeon[clickY]?.[clickX]?.tileType === 'floor'
                     ) {
                         setPlayerPosition({ x: clickX, y: clickY });
-                        setCombatState(prev => {
-                            if (!prev) return prev;
-                            const withLog = addLogEntry(prev, `You move to (${clickX}, ${clickY})`);
-                            const withMove = {
-                                ...withLog,
+                        updateCombatState(prev => checkAndAdvancePlayerTurn(
+                            {
+                                ...addLogEntry(prev, `You move to (${clickX}, ${clickY})`),
                                 hasMovedThisTurn: true,
                                 hasAttackedThisTurn: action === 'long_move'
                                     ? true
                                     : prev.hasAttackedThisTurn
-                            };
-                            return checkAndAdvancePlayerTurn(withMove, enemiesRef.current);
-                        });
+                            },
+                            currentEnemies
+                        ));
                         setPendingAction(null);
                         if (canvasRef.current) canvasRef.current.style.cursor = 'default';
                     }
@@ -637,22 +588,17 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                 return;
             }
 
-            if (combatStateRef.current?.isActive) return;
+            if (cs?.isActive) return;
 
-            if (!dungeonRef.current[clickY]?.[clickX] ||
-                dungeonRef.current[clickY][clickX].tileType !== 'floor') return;
+            if (!currentDungeon[clickY]?.[clickX] ||
+                currentDungeon[clickY][clickX].tileType !== 'floor') return;
 
             const astar = new Path.AStar(clickX, clickY, (x, y) => {
-                return dungeonRef.current[y]?.[x]?.tileType === 'floor';
+                return useGameStore.getState().dungeon[y]?.[x]?.tileType === 'floor';
             });
 
             const path: { x: number; y: number }[] = [];
-            astar.compute(
-                playerPositionRef.current.x,
-                playerPositionRef.current.y,
-                (x, y) => path.push({ x, y })
-            );
-
+            astar.compute(pos.x, pos.y, (x, y) => path.push({ x, y }));
             path.shift();
             if (path.length === 0) return;
 
@@ -670,30 +616,28 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                 setPlayerPosition(nextPos);
                 stepIndex++;
 
-                const detectingEnemy = detectPlayer(
-                    enemiesRef.current,
-                    nextPos,
-                    dungeonRef.current
-                );
+                const {
+                    enemies: latestEnemies,
+                    dungeon: latestDungeon
+                } = useGameStore.getState();
+
+                const detectingEnemy = detectPlayer(latestEnemies, nextPos, latestDungeon);
                 if (detectingEnemy) {
                     clearInterval(movementIntervalRef.current!);
                     movementIntervalRef.current = null;
                     const alertedIds = getAlertedEnemies(
                         detectingEnemy,
-                        enemiesRef.current,
-                        dungeonRef.current
+                        latestEnemies,
+                        latestDungeon
                     );
-                    setEnemies(prev => {
-                        const updated = prev.map(e =>
-                            alertedIds.includes(e.id) ? { ...e, isHostile: true } : e
-                        );
-                        // Reveal tiles of all alerted enemies immediately
-                        updated
-                            .filter(e => alertedIds.includes(e.id))
-                            .forEach(e => revealTile(dungeonRef.current, e.x, e.y));
-                        setCombatState(startCombat(playerCharacter, updated));
-                        return updated;
-                    });
+                    const updated = latestEnemies.map(e =>
+                        alertedIds.includes(e.id) ? { ...e, isHostile: true } : e
+                    );
+                    updated
+                        .filter(e => alertedIds.includes(e.id))
+                        .forEach(e => revealTile(e.x, e.y));
+                    setEnemies(updated);
+                    setCombatState(startCombat(playerCharacter, updated));
                 }
             }, 150);
         };
@@ -703,22 +647,28 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
             canvas.removeEventListener('click', handleClick);
             if (movementIntervalRef.current) clearInterval(movementIntervalRef.current);
         };
-    }, [dungeon]);
+    }, [isReady]);
 
     // Keyboard shortcuts
     useEffect(() => {
+        if (!isReady) return;
+
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement) return;
 
-            const combat = combatStateRef.current;
-            const isPlayerTurnNow = combat?.isActive &&
-                combat.initiativeOrder[combat.currentTurnIndex] === 'player';
+            const {
+                combatState: cs,
+                potions: currentPotions,
+                playerPosition: pos
+            } = useGameStore.getState();
+
+            const isPlayerTurnNow = cs?.isActive &&
+                cs.initiativeOrder[cs.currentTurnIndex] === 'player';
 
             const key = e.key.toLowerCase();
 
             if (key === 'c') {
-                const pos = playerPositionRef.current;
-                const nearPotion = potionsRef.current.find(p =>
+                const nearPotion = currentPotions.find(p =>
                     Math.max(Math.abs(p.x - pos.x), Math.abs(p.y - pos.y)) <= 1
                 );
                 if (nearPotion) {
@@ -727,38 +677,28 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                 }
             }
 
-            if (!isPlayerTurnNow || !combat) return;
+            if (!isPlayerTurnNow || !cs) return;
 
-            const { hasAttackedThisTurn, hasMovedThisTurn } = combat;
+            const { hasAttackedThisTurn, hasMovedThisTurn } = cs;
             const fullTurnUsed = hasAttackedThisTurn || hasMovedThisTurn;
 
             switch (key) {
-                case 'a':
-                    if (!hasAttackedThisTurn) handlePlayerAction('attack');
-                    break;
-                case 'm':
-                    if (!hasMovedThisTurn) handlePlayerAction('move');
-                    break;
-                case 'l':
-                    if (!fullTurnUsed) handlePlayerAction('long_move');
-                    break;
-                case 'f':
-                    if (!fullTurnUsed) handlePlayerAction('focus_attack');
-                    break;
-                case 'e':
-                    handlePlayerAction('end_turn');
-                    break;
+                case 'a': if (!hasAttackedThisTurn) handlePlayerAction('attack'); break;
+                case 'm': if (!hasMovedThisTurn) handlePlayerAction('move'); break;
+                case 'l': if (!fullTurnUsed) handlePlayerAction('long_move'); break;
+                case 'f': if (!fullTurnUsed) handlePlayerAction('focus_attack'); break;
+                case 'e': handlePlayerAction('end_turn'); break;
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    }, [isReady]);
 
     // Game loop
     useEffect(() => {
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas || !isReady) return;
         if (!floorImageLoaded || !playerImageLoaded || !enemyImagesLoaded ||
             !potionImageLoaded || !attackSpritesLoaded) return;
 
@@ -767,21 +707,26 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
 
         let animationFrameId: number;
 
-        const drawTiles = () => {
-            for (let y = 0; y < DUNGEON_HEIGHT; y++) {
-                for (let x = 0; x < DUNGEON_WIDTH; x++) {
-                    const tile = dungeonRef.current[y][x];
+        const drawTiles = (
+            dungeon: ReturnType<typeof useGameStore.getState>['dungeon'],
+            visibleTiles: Set<string>,
+            exploredTiles: Set<string>
+        ) => {
+            const height = dungeon.length;
+            const width = dungeon[0]?.length ?? 0;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const tile = dungeon[y][x];
                     const px = x * TILE_SIZE;
                     const py = y * TILE_SIZE;
+                    const key = `${x},${y}`;
 
-                    if (!tile.isExplored) {
-                        // Never seen — pure black
+                    if (!exploredTiles.has(key)) {
                         ctx.fillStyle = '#000';
                         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
                         continue;
                     }
 
-                    // Draw the tile normally first
                     if (tile.tileType === 'floor' && floorImageRef.current) {
                         ctx.drawImage(floorImageRef.current, px, py, TILE_SIZE, TILE_SIZE);
                     } else {
@@ -789,8 +734,7 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
                     }
 
-                    // If explored but not currently visible, darken slightly
-                    if (!tile.isVisible) {
+                    if (!visibleTiles.has(key)) {
                         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
                         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
                     }
@@ -798,17 +742,17 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
             }
         };
 
-        const drawPotions = () => {
-            potionsRef.current.forEach(potion => {
-                // Only draw if tile is visible
-                if (!dungeonRef.current[potion.y]?.[potion.x]?.isVisible) return;
+        const drawPotions = (
+            potions: ReturnType<typeof useGameStore.getState>['potions'],
+            visibleTiles: Set<string>
+        ) => {
+            potions.forEach(potion => {
+                if (!visibleTiles.has(`${potion.x},${potion.y}`)) return;
                 if (!potionImageRef.current) return;
-
                 const px = potion.x * TILE_SIZE;
                 const py = potion.y * TILE_SIZE;
                 const size = TILE_SIZE * 0.6;
                 const offset = (TILE_SIZE - size) / 2;
-
                 ctx.shadowColor = 'rgba(0, 255, 100, 0.8)';
                 ctx.shadowBlur = 10;
                 ctx.drawImage(potionImageRef.current, px + offset, py + offset, size, size);
@@ -816,47 +760,56 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
             });
         };
 
-        const drawAttackAnimation = (timestamp: number, targetX: number, targetY: number) => {
+        const drawAttackAnimation = (
+            timestamp: number,
+            targetX: number,
+            targetY: number
+        ) => {
             const anim = attackAnimationRef.current;
             if (!anim) return;
-
             const elapsed = timestamp - anim.startTime;
             if (elapsed >= anim.duration) {
                 attackAnimationRef.current = null;
                 return;
             }
-
             const spriteImg = attackSpritesRef.current[anim.spriteType];
             if (!spriteImg) return;
-
             const progress = elapsed / anim.duration;
-            const scale = 1 + progress * 0.5;
-            const alpha = 1 - progress;
-            const size = TILE_SIZE * scale;
+            const size = TILE_SIZE * (1 + progress * 0.5);
             const offset = (TILE_SIZE - size) / 2;
-
-            const px = targetX * TILE_SIZE;
-            const py = targetY * TILE_SIZE;
-
-            ctx.globalAlpha = alpha;
-            ctx.drawImage(spriteImg, px + offset, py + offset, size, size);
+            ctx.globalAlpha = 1 - progress;
+            ctx.drawImage(
+                spriteImg,
+                targetX * TILE_SIZE + offset,
+                targetY * TILE_SIZE + offset,
+                size, size
+            );
             ctx.globalAlpha = 1;
         };
 
-        const drawEnemies = (timestamp: number) => {
-            enemiesRef.current.forEach(enemy => {
-                const tileVisible = dungeonRef.current[enemy.y]?.[enemy.x]?.isVisible;
+        const drawEnemies = (
+            enemies: EnemyCharacter[],
+            visibleTiles: Set<string>,
+            exploredTiles: Set<string>,
+            timestamp: number,
+            pendingAction: PlayerAction | null,
+            playerPos: { x: number; y: number }
+        ) => {
+            enemies.forEach(enemy => {
+                const key = `${enemy.x},${enemy.y}`;
+                const isVisible = visibleTiles.has(key);
+                const isExplored = exploredTiles.has(key);
 
-                // Dead enemies always show on their tile if explored
-                const tileExplored = dungeonRef.current[enemy.y]?.[enemy.x]?.isExplored;
-                if (enemy.currentHp <= 0 && !tileExplored) return;
-                if (enemy.currentHp <= 0 && tileExplored) {
-                    const enemyImg = enemy.enemyType === 'Skeleton'
-                        ? skeletonImageRef.current
-                        : banditImageRef.current;
-                    if (!enemyImg) return;
-                    const px = enemy.x * TILE_SIZE;
-                    const py = enemy.y * TILE_SIZE;
+                const enemyImg = enemy.enemyType === 'Skeleton'
+                    ? skeletonImageRef.current
+                    : banditImageRef.current;
+                if (!enemyImg) return;
+
+                const px = enemy.x * TILE_SIZE;
+                const py = enemy.y * TILE_SIZE;
+
+                if (enemy.currentHp <= 0) {
+                    if (!isExplored) return;
                     ctx.globalAlpha = 0.5;
                     ctx.drawImage(enemyImg, px, py, TILE_SIZE, TILE_SIZE);
                     ctx.fillStyle = 'rgba(180, 0, 0, 0.6)';
@@ -865,36 +818,26 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                     return;
                 }
 
-                // Living enemies only show if tile is visible
-                if (!tileVisible) return;
-
-                const enemyImg = enemy.enemyType === 'Skeleton'
-                    ? skeletonImageRef.current
-                    : banditImageRef.current;
-                if (!enemyImg) return;
-
-                let px = enemy.x * TILE_SIZE;
-                let py = enemy.y * TILE_SIZE;
+                if (!isVisible) return;
 
                 const anim = attackAnimationRef.current;
                 const isAnimating = anim &&
                     anim.entityId === enemy.id &&
                     timestamp - anim.startTime < anim.duration;
 
+                let drawX = px;
                 if (isAnimating) {
-                    px += Math.sin((timestamp - anim.startTime) / 50) * 4;
+                    drawX += Math.sin((timestamp - anim.startTime) / 50) * 4;
                 }
 
-                const pendingAct = pendingActionRef.current;
-                const pos = playerPositionRef.current;
                 const distance = Math.max(
-                    Math.abs(enemy.x - pos.x),
-                    Math.abs(enemy.y - pos.y)
+                    Math.abs(enemy.x - playerPos.x),
+                    Math.abs(enemy.y - playerPos.y)
                 );
-                const isValidRangedTarget = pendingAct === 'attack' && distance <= 4;
-                const isValidMeleeTarget = pendingAct === 'focus_attack' && distance <= 1;
+                const isValidRanged = pendingAction === 'attack' && distance <= 4;
+                const isValidMelee = pendingAction === 'focus_attack' && distance <= 1;
 
-                if (isValidRangedTarget || isValidMeleeTarget) {
+                if (isValidRanged || isValidMelee) {
                     ctx.strokeStyle = 'rgba(255, 255, 0, 0.9)';
                     ctx.lineWidth = 2;
                     ctx.strokeRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2);
@@ -905,28 +848,31 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
                     ctx.shadowBlur = 15;
                 }
 
-                ctx.drawImage(enemyImg, px, py, TILE_SIZE, TILE_SIZE);
+                ctx.drawImage(enemyImg, drawX, py, TILE_SIZE, TILE_SIZE);
                 ctx.shadowBlur = 0;
 
                 if (isAnimating) {
                     const progress = (timestamp - anim.startTime) / anim.duration;
                     ctx.fillStyle = `rgba(255, 0, 0, ${0.5 - progress * 0.5})`;
-                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    ctx.fillRect(drawX, py, TILE_SIZE, TILE_SIZE);
                     drawAttackAnimation(timestamp, enemy.x, enemy.y);
                 }
             });
         };
 
-        const drawPlayer = (timestamp: number) => {
+        const drawPlayer = (
+            pos: { x: number; y: number },
+            timestamp: number
+        ) => {
             if (!playerImageRef.current) return;
-            const pos = playerPositionRef.current;
-            let px = pos.x * TILE_SIZE;
-            let py = pos.y * TILE_SIZE;
 
             const anim = attackAnimationRef.current;
             const isAnimating = anim &&
                 anim.entityId === 'player' &&
                 timestamp - anim.startTime < anim.duration;
+
+            let px = pos.x * TILE_SIZE;
+            const py = pos.y * TILE_SIZE;
 
             if (isAnimating) {
                 px += Math.sin((timestamp - anim.startTime) / 50) * 4;
@@ -945,12 +891,9 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
             }
         };
 
-        const drawTurnIndicator = () => {
-            if (!combatStateRef.current?.isActive) return;
-            const currentId = combatStateRef.current.initiativeOrder[
-                combatStateRef.current.currentTurnIndex
-            ];
-            const isPlayerTurnNow = currentId === 'player';
+        const drawTurnIndicator = (cs: CombatState | null) => {
+            if (!cs?.isActive) return;
+            const isPlayerTurnNow = cs.initiativeOrder[cs.currentTurnIndex] === 'player';
             ctx.fillStyle = isPlayerTurnNow
                 ? 'rgba(255, 215, 0, 0.9)'
                 : 'rgba(255, 80, 80, 0.9)';
@@ -958,49 +901,95 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
             ctx.fillText(isPlayerTurnNow ? '⚔ YOUR TURN' : '💀 ENEMY TURN', 10, 20);
         };
 
-        const drawCombatLog = () => {
-            if (!combatStateRef.current?.isActive) return;
-            const log = combatStateRef.current.log;
-            const lastFive = log.slice(-5);
+        const drawCombatLog = (
+            cs: CombatState | null,
+            dungeonHeight: number
+        ) => {
+            if (!cs?.isActive) return;
+            const lastFive = cs.log.slice(-5);
             ctx.font = '12px monospace';
             lastFive.forEach((entry, i) => {
                 ctx.fillStyle = `rgba(255, 255, 255, ${0.4 + i * 0.15})`;
                 ctx.fillText(
                     entry.message,
                     10,
-                    DUNGEON_HEIGHT * TILE_SIZE - 10 - (lastFive.length - 1 - i) * 18
+                    dungeonHeight * TILE_SIZE - 10 - (lastFive.length - 1 - i) * 18
                 );
             });
         };
 
         const gameLoop = (timestamp: number) => {
+            const {
+                dungeon,
+                enemies,
+                potions,
+                playerPosition,
+                visibleTiles,
+                exploredTiles,
+                pendingAction,
+                combatState: cs
+            } = useGameStore.getState();
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawTiles();
-            drawPotions();
-            drawEnemies(timestamp);
-            drawPlayer(timestamp);
-            drawTurnIndicator();
-            drawCombatLog();
+            drawTiles(dungeon, visibleTiles, exploredTiles);
+            drawPotions(potions, visibleTiles);
+            drawEnemies(
+                enemies,
+                visibleTiles,
+                exploredTiles,
+                timestamp,
+                pendingAction,
+                playerPosition
+            );
+            drawPlayer(playerPosition, timestamp);
+            drawTurnIndicator(cs);
+            drawCombatLog(cs, dungeon.length);
             animationFrameId = requestAnimationFrame(gameLoop);
         };
 
         animationFrameId = requestAnimationFrame(gameLoop);
         return () => cancelAnimationFrame(animationFrameId);
-    }, [floorImageLoaded, playerImageLoaded, enemyImagesLoaded, potionImageLoaded, attackSpritesLoaded]);
+    }, [
+        isReady,
+        floorImageLoaded,
+        playerImageLoaded,
+        enemyImagesLoaded,
+        potionImageLoaded,
+        attackSpritesLoaded
+    ]);
+
+    if (!isReady) {
+        return (
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '100vw',
+                height: '100vh',
+                backgroundColor: '#0a0a0a',
+                color: '#ffd700',
+                fontFamily: 'monospace',
+                fontSize: '24px',
+                letterSpacing: '2px'
+            }}>
+                Generating dungeon...
+            </div>
+        );
+    }
 
     return (
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', margin: 'auto' }}>
             <canvas
                 className="adventure-canvas"
                 ref={canvasRef}
-                width={DUNGEON_WIDTH * TILE_SIZE}
-                height={DUNGEON_HEIGHT * TILE_SIZE}
+                width={dungeon[0]?.length * TILE_SIZE ?? 0}
+                height={dungeon.length * TILE_SIZE ?? 0}
             />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <PlayerPortrait
                     playerCharacter={playerCharacter}
                     currentHp={playerHp}
-                    maxHp={playerCharacter.maxHp}
+                    maxHp={playerMaxHp}
                 />
                 <ContextMenu
                     combatState={combatState?.isActive ? combatState : null}

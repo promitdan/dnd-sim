@@ -52,8 +52,8 @@ export interface EnemyCharacter extends GameCharacter {
 export type TileType = 'wall' | 'floor';
 
 export interface Tile {
-    isExplored: boolean;
-    isVisible: boolean;
+    // isExplored: boolean;
+    // isVisible: boolean;
     tileType: TileType;
     isStart: boolean
 }

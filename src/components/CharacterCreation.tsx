@@ -6,6 +6,8 @@ import MageMale from '../assets/gifs/mage_male.gif';
 import WarriorFemale from '../assets/gifs/warrior_female.gif';
 import MageFemale from '../assets/gifs/mage_female.gif';
 import type { Character, CharacterClass, CharacterGender, CharacterStats } from './types';
+import CharacterSelectionMusic from '../assets/audio/character_selection_music.mp3';
+import { useBackgroundMusic } from '../hooks/useBackgroundMusic';
 
 const rollStat = (): number => {
     const min = 8;
@@ -40,6 +42,8 @@ const CharacterCreation = ({ onAdventureStart }: { onAdventureStart: (character:
     useEffect(() => {
         nameRef.current?.focus();
     }, []);
+
+    useBackgroundMusic(CharacterSelectionMusic);
 
     const handleNameKeyNav = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'ArrowDown') {
