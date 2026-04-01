@@ -1,0 +1,20 @@
+.game-area {
+    width: calc(100vw - 80px);
+    height: calc(100vh - 100px);
+    margin: auto;
+    border: 1px solid black;
+    display: flex;
+    flex-direction: column;
+    background-image: url('../assets/dungeon/background.jpg');
+    background-size: cover;      /* fills the div, may crop */
+    background-position: center; /* centers the image */
+    background-repeat: no-repeat;
+}
+
+.game-title {
+    text-align: center;
+    font-size: 36px;
+    font-weight: bold;
+    margin-bottom: 20px;
+    color: #dcdaca;
+}
