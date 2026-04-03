@@ -15,7 +15,7 @@ export type CharacterGender = 'Male' | 'Female';
 export interface Character {
     name: string;
     characterClass: CharacterClass;
-    characterGender: CharacterGender;
+    characterGender?: CharacterGender;
     stats: CharacterStats;
 }
 
@@ -46,14 +46,12 @@ export interface EnemyCharacter extends GameCharacter {
     };
     x: number;
     y: number;
-    characterClass?: CharacterClass | undefined;
-    characterGender?: CharacterGender;
 }
 export type TileType = 'wall' | 'floor';
 
 export interface Tile {
-    isExplored: boolean;
-    isVisible: boolean;
+    // isExplored: boolean;
+    // isVisible: boolean;
     tileType: TileType;
     isStart: boolean
 }
@@ -84,4 +82,13 @@ export interface HealthPotion {
     id: string
     x: number
     y: number
+}
+
+export type AttackSpriteType = 'arrow' | 'fireball' | 'sword' | 'staff';
+
+export interface AttackAnimation {
+    entityId: string;
+    startTime: number;
+    duration: number;
+    spriteType: AttackSpriteType;
 }

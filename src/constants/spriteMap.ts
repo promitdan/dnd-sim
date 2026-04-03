@@ -1,4 +1,4 @@
-import type { CharacterClass, CharacterGender, EnemyType } from "../components/types";
+import type { CharacterClass, CharacterGender, EnemyType, AttackSpriteType } from "../components/types";
 import WarriorMale from '../assets/sprites/warrior_male.jpg';
 import WarriorFemale from '../assets/sprites/warrior_female.jpg';
 import MageMale from '../assets/sprites/mage_male.jpg';
@@ -21,14 +21,18 @@ export const PLAYER_SPRITE_MAP: Record<playerSpriteKey, string> = {
     'Warrior_Male': WarriorMale,
     'Warrior_Female': WarriorFemale,
     'Mage_Male': MageMale,
-    'Mage_Female': MageFemale
+    'Mage_Female': MageFemale,
+    'Undead_Male': WarriorMale,
+    'Undead_Female': WarriorFemale,
 };
 
 export const PLAYER_PORTRAIT_MAP: Record<playerSpriteKey, string> = {
     'Warrior_Male': WarriorMalePortrait,
     'Warrior_Female': WarriorFemalePortrait,
     'Mage_Male': MageMalePortrait,
-    'Mage_Female': MageFemalePortrait
+    'Mage_Female': MageFemalePortrait,
+    'Undead_Male': WarriorMalePortrait,
+    'Undead_Female': WarriorFemalePortrait,
 };
 
 export const ENEMY_SPRITE_MAP: Record<EnemyType, string> = {
@@ -40,7 +44,7 @@ export const POTION_SPRITE_MAP: Record<string, string> = {
     'Health': HealthPotion
 };
 
-export const ATTACK_SPRITE_MAP = {
+export const ATTACK_SPRITE_MAP: Record<AttackSpriteType, string> = {
     arrow: ArrowSprite,
     fireball: FireballSprite,
     sword: SwordSprite,
