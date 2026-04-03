@@ -80,7 +80,7 @@ const computeFOV = (
     return { visibleTiles, exploredTiles };
 };
 
-export const useGameStore = create<GameStore>((set, get) => ({
+export const useGameStore = create<GameStore>((set) => ({
     dungeon: [],
     visibleTiles: new Set(),
     exploredTiles: new Set(),

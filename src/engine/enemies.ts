@@ -27,6 +27,7 @@ export const initializeEnemies = (dungeon: Tile[][], SKELETON_COUNT: number, BAN
         enemies.push({
             id: crypto.randomUUID(),
             name: 'Skeleton',
+            characterClass: 'Undead',
             enemyType: 'Skeleton',
             vision: 2,
             isHostile: false,
@@ -57,6 +58,7 @@ export const initializeEnemies = (dungeon: Tile[][], SKELETON_COUNT: number, BAN
         enemies.push({
             id: crypto.randomUUID(),
             name: 'Bandit',
+            characterClass: 'Warrior',
             enemyType: 'Bandit',
             vision: 3,
             isHostile: false,
@@ -99,7 +101,7 @@ const hasLineOfSight = (
 export const getAlertedEnemies = (
     detectingEnemy: EnemyCharacter,
     allEnemies: EnemyCharacter[],
-    dungeon: Tile[][]
+    _dungeon: Tile[][]
 ): string[] => {
     const alertedIds = new Set<string>();
     alertedIds.add(detectingEnemy.id);
@@ -112,7 +114,7 @@ export const getAlertedEnemies = (
         allEnemies
             .filter(e => !alertedIds.has(e.id))
             .forEach(e => {
-                if (hasLineOfSight(current, e, current.vision, dungeon)) {
+                if (hasLineOfSight(current, e, current.vision)) {
                     alertedIds.add(e.id);
                     queue.push(e);
                 }
@@ -125,7 +127,7 @@ export const getAlertedEnemies = (
 export const detectPlayer = (
     enemies: EnemyCharacter[],
     playerPosition: { x: number; y: number },
-    dungeon: Tile[][]
+    _dungeon: Tile[][]
 ): EnemyCharacter | null => {
     for (const enemy of enemies) {
         if (enemy.isHostile) continue;
