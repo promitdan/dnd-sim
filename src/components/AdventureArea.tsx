@@ -93,9 +93,11 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
     const isInCombat = !!combatState?.isActive;
     useBackgroundMusic(isInCombat ? CombatMusic : ExplorationMusic);
 
+    const isFullyReady = isReady && assets.allLoaded;
+
     useCanvasRenderer(canvasRef, assets, attackAnimationRef, isReady);
     useEnemyTurn(playerCharacter, onGameOver, attackAnimationRef);
-    const { handlePlayerAction } = useGameInput(canvasRef, playerCharacter, isReady, attackAnimationRef);
+    const { handlePlayerAction } = useGameInput(canvasRef, playerCharacter, isFullyReady, attackAnimationRef);
 
     const adjacentPotion = useMemo(() => {
         return potions.find(p =>
