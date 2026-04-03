@@ -45,6 +45,8 @@ const CharacterCreation = ({ onAdventureStart }: { onAdventureStart: (character:
     const rerollRef = useRef<HTMLButtonElement>(null);
     const confirmRef = useRef<HTMLButtonElement>(null);
 
+    useBackgroundMusic(CharacterSelectionMusic);
+
     useEffect(() => {
         if (gifsLoaded) nameRef.current?.focus();
     }, [gifsLoaded]);
@@ -52,8 +54,6 @@ const CharacterCreation = ({ onAdventureStart }: { onAdventureStart: (character:
     if (!gifsLoaded) {
         return <LoadingScreen progress={progress} />;
     }
-
-    useBackgroundMusic(CharacterSelectionMusic);
 
     const handleNameKeyNav = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'ArrowDown') {
