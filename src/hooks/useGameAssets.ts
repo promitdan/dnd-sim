@@ -9,14 +9,18 @@ import {
     ATTACK_SPRITE_MAP,
 } from '../constants/spriteMap';
 
+// floor + player + potion + skeleton + bandit + 4 attack sprites
+const TOTAL_ASSETS = 9;
+
 export interface GameAssets {
-    floorRef: React.MutableRefObject<HTMLImageElement | null>;
-    playerRef: React.MutableRefObject<HTMLImageElement | null>;
-    skeletonRef: React.MutableRefObject<HTMLImageElement | null>;
-    banditRef: React.MutableRefObject<HTMLImageElement | null>;
-    potionRef: React.MutableRefObject<HTMLImageElement | null>;
-    attackSpritesRef: React.MutableRefObject<Partial<Record<AttackSpriteType, HTMLImageElement>>>;
+    floorRef: React.RefObject<HTMLImageElement | null>;
+    playerRef: React.RefObject<HTMLImageElement | null>;
+    skeletonRef: React.RefObject<HTMLImageElement | null>;
+    banditRef: React.RefObject<HTMLImageElement | null>;
+    potionRef: React.RefObject<HTMLImageElement | null>;
+    attackSpritesRef: React.RefObject<Partial<Record<AttackSpriteType, HTMLImageElement>>>;
     allLoaded: boolean;
+    progress: number; // 0 to 1
 }
 
 export const useGameAssets = (playerCharacter: PlayerCharacter): GameAssets => {
@@ -27,16 +31,14 @@ export const useGameAssets = (playerCharacter: PlayerCharacter): GameAssets => {
     const potionRef = useRef<HTMLImageElement | null>(null);
     const attackSpritesRef = useRef<Partial<Record<AttackSpriteType, HTMLImageElement>>>({});
 
-    const [floorLoaded, setFloorLoaded] = useState(false);
-    const [playerLoaded, setPlayerLoaded] = useState(false);
-    const [enemiesLoaded, setEnemiesLoaded] = useState(false);
-    const [potionLoaded, setPotionLoaded] = useState(false);
-    const [attacksLoaded, setAttacksLoaded] = useState(false);
+    const [loadedCount, setLoadedCount] = useState(0);
+
+    const onLoad = () => setLoadedCount(c => c + 1);
 
     useEffect(() => {
         const img = new Image();
         img.src = FloorTile;
-        img.onload = () => { floorRef.current = img; setFloorLoaded(true); };
+        img.onload = () => { floorRef.current = img; onLoad(); };
     }, []);
 
     useEffect(() => {
@@ -44,41 +46,41 @@ export const useGameAssets = (playerCharacter: PlayerCharacter): GameAssets => {
         const key = `${characterClass}_${characterGender}` as playerSpriteKey;
         const img = new Image();
         img.src = PLAYER_SPRITE_MAP[key];
-        img.onload = () => { playerRef.current = img; setPlayerLoaded(true); };
+        img.onload = () => { playerRef.current = img; onLoad(); };
     }, [playerCharacter]);
 
     useEffect(() => {
         const img = new Image();
         img.src = POTION_SPRITE_MAP['Health'];
-        img.onload = () => { potionRef.current = img; setPotionLoaded(true); };
+        img.onload = () => { potionRef.current = img; onLoad(); };
     }, []);
 
     useEffect(() => {
         const types: EnemyType[] = ['Skeleton', 'Bandit'];
-        let count = 0;
         types.forEach(type => {
             const img = new Image();
             img.src = ENEMY_SPRITE_MAP[type];
             img.onload = () => {
                 if (type === 'Skeleton') skeletonRef.current = img;
                 else banditRef.current = img;
-                if (++count === types.length) setEnemiesLoaded(true);
+                onLoad();
             };
         });
     }, []);
 
     useEffect(() => {
         const types = Object.keys(ATTACK_SPRITE_MAP) as AttackSpriteType[];
-        let count = 0;
         types.forEach(type => {
             const img = new Image();
             img.src = ATTACK_SPRITE_MAP[type];
             img.onload = () => {
                 attackSpritesRef.current[type] = img;
-                if (++count === types.length) setAttacksLoaded(true);
+                onLoad();
             };
         });
     }, []);
+
+    const progress = Math.min(loadedCount / TOTAL_ASSETS, 1);
 
     return {
         floorRef,
@@ -87,6 +89,7 @@ export const useGameAssets = (playerCharacter: PlayerCharacter): GameAssets => {
         banditRef,
         potionRef,
         attackSpritesRef,
-        allLoaded: floorLoaded && playerLoaded && enemiesLoaded && potionLoaded && attacksLoaded,
+        allLoaded: loadedCount >= TOTAL_ASSETS,
+        progress,
     };
 };
