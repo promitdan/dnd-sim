@@ -9,10 +9,11 @@ const TILE_SIZE = 48;
 export const useCanvasRenderer = (
     canvasRef: React.RefObject<HTMLCanvasElement | null>,
     assets: GameAssets,
-    attackAnimationRef: React.MutableRefObject<AttackAnimation | null>
+    attackAnimationRef: React.MutableRefObject<AttackAnimation | null>,
+    isReady: boolean
 ) => {
     useEffect(() => {
-        if (!assets.allLoaded) return;
+        if (!isReady || !assets.allLoaded) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
@@ -224,5 +225,5 @@ export const useCanvasRenderer = (
 
         animationFrameId = requestAnimationFrame(gameLoop);
         return () => cancelAnimationFrame(animationFrameId);
-    }, [assets.allLoaded]);
+    }, [assets.allLoaded, isReady]);
 };

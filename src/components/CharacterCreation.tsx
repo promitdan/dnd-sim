@@ -8,6 +8,10 @@ import MageFemale from '../assets/gifs/mage_female.gif';
 import type { Character, CharacterClass, CharacterGender, CharacterStats } from './types';
 import CharacterSelectionMusic from '../assets/audio/character_selection_music.mp3';
 import { useBackgroundMusic } from '../hooks/useBackgroundMusic';
+import { usePreloadImages } from '../hooks/usePreloadImages';
+import LoadingScreen from './LoadingScreen';
+
+const CHARACTER_GIFS = [WarriorMale, MageMale, WarriorFemale, MageFemale];
 
 const rollStat = (): number => {
     const min = 8;
@@ -28,6 +32,8 @@ const rollStats = (): CharacterStats => {
 }
 
 const CharacterCreation = ({ onAdventureStart }: { onAdventureStart: (character: Character) => void }) => {
+    const { progress, loaded: gifsLoaded } = usePreloadImages(CHARACTER_GIFS);
+
     const [characterName, setCharacterName] = useState('');
     const [characterStats, setCharacterStats] = useState(rollStats);
     const [characterClass, setCharacterClass] = useState<CharacterClass>('Warrior');
@@ -40,8 +46,12 @@ const CharacterCreation = ({ onAdventureStart }: { onAdventureStart: (character:
     const confirmRef = useRef<HTMLButtonElement>(null);
 
     useEffect(() => {
-        nameRef.current?.focus();
-    }, []);
+        if (gifsLoaded) nameRef.current?.focus();
+    }, [gifsLoaded]);
+
+    if (!gifsLoaded) {
+        return <LoadingScreen progress={progress} />;
+    }
 
     useBackgroundMusic(CharacterSelectionMusic);
 

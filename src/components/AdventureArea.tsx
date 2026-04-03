@@ -19,6 +19,7 @@ import {
 } from '../state/gameStore';
 import ContextMenu from './ContextMenu';
 import PlayerPortrait from './PlayerPortrait';
+import LoadingScreen from './LoadingScreen';
 import './AdventureArea.css';
 
 const TILE_SIZE = 48;
@@ -92,7 +93,7 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
     const isInCombat = !!combatState?.isActive;
     useBackgroundMusic(isInCombat ? CombatMusic : ExplorationMusic);
 
-    useCanvasRenderer(canvasRef, assets, attackAnimationRef);
+    useCanvasRenderer(canvasRef, assets, attackAnimationRef, isReady);
     useEnemyTurn(playerCharacter, onGameOver, attackAnimationRef);
     const { handlePlayerAction } = useGameInput(canvasRef, playerCharacter, isReady, attackAnimationRef);
 
@@ -107,23 +108,8 @@ const AdventureArea = ({ playerCharacter, onVictory, onGameOver }: AdventureArea
         return combatState.initiativeOrder[combatState.currentTurnIndex] === 'player';
     }, [combatState]);
 
-    if (!isReady) {
-        return (
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '100vw',
-                height: '100vh',
-                backgroundColor: '#0a0a0a',
-                color: '#ffd700',
-                fontFamily: 'monospace',
-                fontSize: '24px',
-                letterSpacing: '2px'
-            }}>
-                Generating dungeon...
-            </div>
-        );
+    if (!isReady || !assets.allLoaded) {
+        return <LoadingScreen progress={!isReady ? 0 : assets.progress} />;
     }
 
     return (
